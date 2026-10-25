@@ -75,6 +75,28 @@ jobs:
           set -euxo pipefail
           bash scripts/build.sh inspect
 
+      # Share only the freshly compiled public GKI symbol CRC table.
+      # Never upload stock vendor .ko samples or the user's boot image.
+      - name: Save GKI Module.symvers for offline ABI comparison
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$REPORT_DIR"
+          if [ -s "$DIST_DIR/Module.symvers" ]; then
+            src="$DIST_DIR/Module.symvers"
+          else
+            src="$(find "$GKI_ROOT/out" -type f -name 'Module.symvers' -size +100k -print -quit 2>/dev/null || true)"
+          fi
+          if [ -n "${src:-}" ] && [ -s "$src" ]; then
+            cp "$src" "$REPORT_DIR/gki_Module.symvers"
+            wc -l "$REPORT_DIR/gki_Module.symvers"
+            sha256sum "$REPORT_DIR/gki_Module.symvers"
+          else
+            echo "Module.symvers unavailable in this build; CRC comparison not possible yet" | tee "$REPORT_DIR/symvers_missing.txt"
+            find "$DIST_DIR" -maxdepth 2 -type f -printf '%f %s bytes\n' | sort > "$REPORT_DIR/dist_files.txt"
+          fi
+
       - name: Upload diagnostics (even on failure)
         if: always()
         uses: actions/upload-artifact@v4
