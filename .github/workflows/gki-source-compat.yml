@@ -1,0 +1,29 @@
+name: GKI source feature compatibility
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/gki-source-compat.yml"
+      - "tools/probe_gki_source.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare GKI tag source features
+        run: python3 tools/probe_gki_source.py
+      - name: Preserve analysis data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gki-source-compatibility-matrix
+          path: reports/gki_source_matrix.json
+          retention-days: 21
+          if-no-files-found: warn
