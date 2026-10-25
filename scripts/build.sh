@@ -38,6 +38,24 @@ case "${1:-}" in
     git -C KernelSU rev-parse HEAD | tee "$REPORTS/kernelsu.commit"
     test -f KernelSU/kernel/Kbuild
     test -f KernelSU/kernel/Kconfig
+    # Kleaf's sandbox omits git metadata and Kbuild otherwise uses KSU_VERSION=16.
+    # Calculate the proper KernelSU release version before sandboxing.
+    if [ "$(git -C KernelSU rev-parse --is-shallow-repository)" = true ]; then
+      git -C KernelSU fetch --unshallow
+    fi
+    KSU_VERSION_COUNT="$(git -C KernelSU rev-list --count HEAD)"
+    case "$KSU_VERSION_COUNT" in
+      ''|*[!0-9]*) echo "Invalid KernelSU git revision count" >&2; exit 1 ;;
+    esac
+    KSU_COMPILED_VERSION="$((30000 + KSU_VERSION_COUNT))"
+    test "$KSU_COMPILED_VERSION" -gt 30000
+    grep -Fqx 'ccflags-y += -DKSU_VERSION=16' KernelSU/kernel/Kbuild || {
+      echo "Unknown Kbuild version fallback; refusing blind patch" >&2
+      exit 1
+    }
+    sed -i "s/^ccflags-y += -DKSU_VERSION=16$/ccflags-y += -DKSU_VERSION=$KSU_COMPILED_VERSION/" KernelSU/kernel/Kbuild
+    printf '%s\n' "$KSU_COMPILED_VERSION" | tee "$REPORTS/kernelsu.version"
+    echo "KernelSU Git count: $KSU_VERSION_COUNT; version: $KSU_COMPILED_VERSION"
     ln -sfn ../../KernelSU/kernel common/drivers/kernelsu
     if ! grep -Fq 'obj-$(CONFIG_KSU) += kernelsu/' common/drivers/Makefile; then
       printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> common/drivers/Makefile
