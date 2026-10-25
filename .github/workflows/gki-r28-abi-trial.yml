@@ -1,0 +1,115 @@
+name: Experimental GKI r28 Xiaomi ABI trial (NO FLASH)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/gki-r28-abi-trial.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: experimental-xiaomi-gki-r28-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    env:
+      GKI_ROOT: ${{ github.workspace }}/gki
+      DIST_DIR: ${{ github.workspace }}/dist
+      REPORT_DIR: ${{ github.workspace }}/reports
+      MANIFEST_BRANCH: common-android15-6.6-2026-01
+      GKI_TAG: android15-6.6-2026-01_r28
+      KSU_TAG: v3.3.1
+      JOBS: "3"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free ephemeral runner disk
+        shell: bash
+        run: |
+          set -euxo pipefail
+          df -h
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache /usr/local/share/powershell /usr/share/swift
+          sudo docker system prune -af || true
+          df -h
+      - name: Install AOSP repo prerequisites
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends git python3 curl ca-certificates unzip zip zstd xz-utils build-essential
+          mkdir -p "$HOME/.local/bin"
+          curl -fL --retry 3 -o "$HOME/.local/bin/repo" https://storage.googleapis.com/git-repo-downloads/repo
+          chmod +x "$HOME/.local/bin/repo"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Checkout pinned GKI r28
+        run: bash scripts/build.sh prepare
+      - name: Integrate pinned KernelSU built-in
+        run: bash scripts/build.sh integrate
+      - name: Compile r28 ARM64 GKI
+        run: bash scripts/build.sh build
+      - name: Validate Image and KernelSU
+        run: bash scripts/build.sh inspect
+      - name: Verify Xiaomi upstream task-structure features
+        run: |
+          python3 - <<'PY'
+          import gzip, json, os
+          from pathlib import Path
+          image = Path(os.environ['DIST_DIR'])/'Image'
+          b = image.read_bytes()
+          x, y = b.find(b'IKCFG_ST'), b.find(b'IKCFG_ED')
+          if x < 0 or y <= x: raise SystemExit('IKCONFIG missing')
+          conf = gzip.decompress(b[x+len(b'IKCFG_ST'):y]).decode()
+          expected = {
+              'CONFIG_KSU': 'y',
+              'CONFIG_GKI_DYNAMIC_TASK_STRUCT_SIZE': 'y',
+              'CONFIG_GKI_TASK_STRUCT_VENDOR_SIZE_MAX': '1024',
+              'CONFIG_ARCH_WANTS_DYNAMIC_TASK_STRUCT': 'y',
+              'CONFIG_ARM64_4K_PAGES': 'y'
+          }
+          actual = {}
+          for key in expected:
+              match = [line[len(key)+1:] for line in conf.splitlines() if line.startswith(key+'=')]
+              actual[key] = match[-1] if match else None
+          result = {'tag': os.environ['GKI_TAG'], 'required': expected,
+                    'actual': actual, 'matches': {k: actual[k] == v for k,v in expected.items()},
+                    'stock_abi_verified': False, 'safe_to_flash': False}
+          p = Path(os.environ['REPORT_DIR'])/'r28_feature_audit.json'
+          p.parent.mkdir(parents=True, exist_ok=True)
+          p.write_text(json.dumps(result, indent=2) + '\n')
+          print(json.dumps(result, indent=2))
+          if not all(result['matches'].values()):
+              raise SystemExit('Missing expected Xiaomi GKI feature(s)')
+          PY
+      - name: Export kernel symbol CRC table
+        if: success()
+        run: |
+          set -euo pipefail
+          mkdir -p "$REPORT_DIR"
+          if [ -s "$DIST_DIR/Module.symvers" ]; then
+            cp "$DIST_DIR/Module.symvers" "$REPORT_DIR/gki_Module.symvers"
+          else
+            src="$(find "$GKI_ROOT/out" -type f -name Module.symvers -size +100k -print -quit 2>/dev/null || true)"
+            test -n "$src" && test -s "$src"
+            cp "$src" "$REPORT_DIR/gki_Module.symvers"
+          fi
+          wc -l "$REPORT_DIR/gki_Module.symvers"
+      - name: Upload diagnostic reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: experimental-r28-abi-reports
+          path: reports/
+          retention-days: 21
+          if-no-files-found: warn
+      - name: Upload experimental Image NOT FLASHABLE
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: experimental-r28-image-not-for-flashing
+          path: dist/Image
+          retention-days: 7
+          if-no-files-found: error
