@@ -1,0 +1,29 @@
+name: GKI tag compatibility probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-gki-tags.yml"
+      - "tools/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Inspect public GKI source tags (no build or flashing)
+        run: python3 tools/probe_gki_tags.py
+      - name: Save diagnostic report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gki-tags-compatibility-report
+          path: reports/gki_tag_probe.json
+          if-no-files-found: warn
