@@ -1,0 +1,94 @@
+name: Experimental KernelSU built-in GKI (xuanyuan)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/kernel-gki.yml"
+      - "scripts/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: experimental-gki-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    env:
+      GKI_ROOT: ${{ github.workspace }}/gki
+      DIST_DIR: ${{ github.workspace }}/dist
+      REPORT_DIR: ${{ github.workspace }}/reports
+      MANIFEST_BRANCH: common-android15-6.6-2026-01
+      GKI_TAG: android15-6.6-2026-01_r2
+      KSU_TAG: v3.3.1
+      JOBS: "3"
+    steps:
+      - name: Checkout build scripts
+        uses: actions/checkout@v4
+
+      - name: Recover runner disk space (ephemeral CI only)
+        shell: bash
+        run: |
+          set -euxo pipefail
+          df -h
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache /usr/local/share/powershell /usr/share/swift
+          sudo docker system prune -af || true
+          df -h
+
+      - name: Install repo and prerequisites
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends git python3 curl ca-certificates unzip zip zstd xz-utils build-essential
+          mkdir -p "$HOME/.local/bin"
+          curl --fail --location --retry 3 --output "$HOME/.local/bin/repo" https://storage.googleapis.com/git-repo-downloads/repo
+          chmod +x "$HOME/.local/bin/repo"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Sync fixed AOSP GKI sources
+        shell: bash
+        run: |
+          set -euxo pipefail
+          bash scripts/build.sh prepare
+
+      - name: Integrate KernelSU built-in
+        shell: bash
+        run: |
+          set -euxo pipefail
+          bash scripts/build.sh integrate
+
+      - name: Compile with Kleaf / Bazel
+        shell: bash
+        run: |
+          set -euxo pipefail
+          bash scripts/build.sh build
+
+      - name: Verify Image static metadata
+        shell: bash
+        run: |
+          set -euxo pipefail
+          bash scripts/build.sh inspect
+
+      - name: Upload diagnostics (even on failure)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: experimental-gki-reports
+          path: reports/
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Upload candidate Image (NOT FLASHABLE)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: experimental-kernelsu-image-not-for-flashing
+          path: dist/Image
+          retention-days: 7
+          if-no-files-found: error
