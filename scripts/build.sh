@@ -55,9 +55,20 @@ PY
     fi
     cfg=common/arch/arm64/configs/gki_defconfig
     test -f "$cfg"
+    # KernelSU v3.3.1 declares CONFIG_KSU with "default y".
+    # gki_defconfig is a *minimal* savedefconfig; adding a default-y
+    # option makes Kleaf reject the resulting config as noncanonical.
+    # Do not disable the check_defconfig gate or alter KernelSU defaults.
     sed -i '/^CONFIG_KSU=/d; /^# CONFIG_KSU is not set/d' "$cfg"
-    printf '\nCONFIG_KSU=y\n' >> "$cfg"
-    grep -n 'CONFIG_KSU' "$cfg" | tee "$REPORTS/ksu.defconfig"
+    grep -Fq 'source "drivers/kernelsu/Kconfig"' common/drivers/Kconfig
+    grep -Fq 'obj-$(CONFIG_KSU) += kernelsu/' common/drivers/Makefile
+    grep -q '^[[:space:]]*default y' KernelSU/kernel/Kconfig
+    readlink -f common/drivers/kernelsu | grep -Fx "$(realpath KernelSU/kernel)"
+    printf 'KSU config uses default y; no redundant CONFIG_KSU=y in minimal defconfig.\n' | tee "$REPORTS/ksu.defconfig"
+    printf 'KPROBES from GKI defconfig: ' >> "$REPORTS/ksu.defconfig"
+    grep '^CONFIG_KPROBES=' "$cfg" | tee -a "$REPORTS/ksu.defconfig" || true
+    printf 'EXT4_FS from GKI defconfig: ' >> "$REPORTS/ksu.defconfig"
+    grep '^CONFIG_EXT4_FS=' "$cfg" | tee -a "$REPORTS/ksu.defconfig" || true
     git -C common diff -- drivers/Kconfig drivers/Makefile arch/arm64/configs/gki_defconfig > "$REPORTS/integration.patch"
     ;;
   build)
