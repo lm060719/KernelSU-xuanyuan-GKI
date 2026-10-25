@@ -18,8 +18,12 @@ case "${1:-}" in
     repo init -u https://android.googlesource.com/kernel/manifest -b "$MANIFEST_BRANCH" --depth=1
     repo sync -c --no-tags --fail-fast --no-clone-bundle -j "$JOBS"
     test -e common/.git || { echo 'Missing common kernel tree'; exit 1; }
-    git -C common fetch --depth=1 origin "refs/tags/$GKI_TAG:refs/tags/$GKI_TAG"
-    git -C common checkout --detach "$GKI_TAG"
+    # repo-managed Git checkouts may not have an "origin" remote.
+    # Fetch the pinned upstream tag directly from its canonical URL.
+    git -C common fetch --depth=1 https://android.googlesource.com/kernel/common "refs/tags/$GKI_TAG:refs/tags/$GKI_TAG"
+    git -C common checkout --detach "refs/tags/$GKI_TAG"
+    echo "Kernel common remotes:"
+    git -C common remote -v || true
     git -C common rev-parse HEAD | tee "$REPORTS/gki.commit"
     git -C common describe --always --tags | tee "$REPORTS/gki.tag"
     df -h "$ROOT"
