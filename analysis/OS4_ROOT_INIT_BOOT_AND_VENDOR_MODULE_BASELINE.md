@@ -50,3 +50,24 @@ sh /sdcard/Download/xuanyuan_OS4_readonly_runtime_diag.sh
 **判定门槛：** 将活跃 `boot` hash 与此前同版本原厂 `boot_b.img` hash 核验；如 `boot` 确为原厂而 Root 正常，说明 Root 并非靠重新编译原厂 boot 中的 KernelSU built-in，接着必须检查 `init_boot` 与 Root 实际实现。`init_boot` hash 必须与**同版本真正的原厂 init_boot** 比较才能判断其是否修改，不应凭任意 hash 猜测。
 
 在缺乏相同固件的 OEM 私有源码、实机启动错误日志和全量 vendor .ko 分析前，**不制作、不刷写下一版 GKI**。
+
+
+## 2026-10-26 23:08（UTC+8）：用户手机只读运行报告已回传
+
+来自用户本机 `xuanyuan_OS4_root_module_baseline_20261026_230831.txt`：
+
+- 机型 `xuanyuan`，系统 `OS4.0.0.16.XOACNXM`，原厂内核 `6.6.118-android15-8-gb9cc6ec16bc8-abogki536571621-4k`。
+- 当前实际槽位 `_b`；`sha256(/dev/block/by-name/boot_b)` = `f082826b0e9ea020a5ab20db3dacc6814bbbe8b30e7a223eebd81f69d8eeac30`，**与此前提供的原厂 `boot_b.img` 完全匹配**。
+- `sha256(/dev/block/by-name/init_boot_b)` = `df4db6bc51607e60c4128be6a6c9d0faf22a0aeb23aa7e8a70fc475bbf252b49`。**缺少该确切固件的干净原厂 `init_boot_b.img` 对照哈希，不得猜测是否已修改**。
+- `id -Z` 回报 `u:r:ksu:s0`；`/proc/modules` 明确包含 **`kernelsu`**；存在 `/data/adb/ksu`。当前使用 **KernelSU LKM**，即使 `/sys/module/kernelsu`、`/sys/module/ksu`、`/sys/module/ksu_lkm` 均不存在也不能否定 LKM（可能隐藏、不同内核配置等）。
+- `/proc/modules` 实际有 **602** 个加载模块；`/vendor_dlkm/lib/modules/modules.load` 有 **556** 个条目，其中脚本按名称匹配到 **542**，另 **14** 项未见于 `/proc/modules`，包含硬件替代驱动和重复条目（Wi-Fi `qca_cld3_*`、`icnss2` 等）；**并不证明任何模块在启动时加载失败**。
+- `/sys/fs/pstore` 仍为空。
+
+**重要实验解释修正：** “vanilla GKI”仅说明 **GKI Image 编译时无 `CONFIG_KSU`**；并不代表整个设备开机流程完全无 KernelSU。此前替换 `boot.img` 时很可能沿用了现有的 KernelSU LKM 启动环境。根据 [KernelSU 官方安装文档](https://kernelsu.org/guide/installation.html)，Android 13+ 设备在常规 LKM 安装模式下通过 **`init_boot` 的 ramdisk 注入**内核模块，而 GKI 模式替换 `boot`；但 KernelSU 还提供 late-load 模式，所以 **仅凭当前模块存在不能证实 `init_boot` 一定被修改**。若 `init_boot_b` 为补丁版，启动失败时已有 LKM 可能与新替换的 GKI 在 ABI 或加载时机上冲突。
+
+**尚未证实的判断：**
+- 不能因此把所有三次 bootloop 都归咎于 LKM：缺失的 OEM 存储补丁、专用 Hook、厂商模块加载或 ramdisk 行为等仍可能单独引起失败。
+- 当前可用系统及数据应保持不变，**不应盲刷原厂 init_boot、卸载 Root、清除模块或试刷第四个 GKI**。
+- 下一步以**只读**方式核对 `init_boot_b` 与匹配固件原厂 image 的哈希，同时辨认已安装 `kernelsu.ko` 的版本/依赖或 KernelSU Manager Runtime Mode，优先分析它与 r37 的 ABI；如需进一步改变 boot 测试条件，先制订可靠的完整回退方案。
+
+安全：未将私有分区文件上传 GitHub；本仓库仅收录这些简要诊断事实。
