@@ -63,7 +63,7 @@ def main():
     imagehash = hashlib.sha256(image.read_bytes()).hexdigest()
     result = {}
     for name in FIRST_35:
-        entry = kallsyms.get(name, [])
+        entry = [i for i in kallsyms.get(name, []) if not i["is_undefined"]]
         result[name] = {
             "linked_system_map": bool(entry),
             "system_map_types": sorted(set(i["type"] for i in entry)),
