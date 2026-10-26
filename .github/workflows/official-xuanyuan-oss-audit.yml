@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/official-xuanyuan-oss-audit.yml'
       - 'research/audit_official_xuanyuan.py'
+      - 'research/compare_official_code.py'
   workflow_dispatch:
 
 permissions:
@@ -24,6 +25,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 research/audit_official_xuanyuan.py
+          python3 research/compare_official_code.py
 
       - name: Upload reproducible source provenance report
         if: always()
