@@ -1,15 +1,24 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Experimental AOSP GKI + KernelSU built-in. NEVER flashes or repacks boot.
+# AOSP GKI 6.6.118 + KernelSU built-in for Xiaomi 15 Ultra (xuanyuan).
+# Produces an AnyKernel3 zip that only swaps the kernel inside the phone's own
+# boot image (header, patch level, cmdline and AVB vbmeta blob stay stock).
 ROOT="${GKI_ROOT:-$PWD/gki}"
 DIST="${DIST_DIR:-$PWD/dist}"
 REPORTS="${REPORT_DIR:-$PWD/reports}"
+OUT="${OUT_DIR:-$PWD/out}"
 MANIFEST_BRANCH="${MANIFEST_BRANCH:-common-android15-6.6-2026-01}"
-GKI_TAG="${GKI_TAG:-android15-6.6-2026-01_r2}"
+GKI_TAG="${GKI_TAG:-android15-6.6-2026-01_r43}"
 KSU_TAG="${KSU_TAG:-v3.3.1}"
+# Stock: 6.6.118-android15-8-gb9cc6ec16bc8-abogki536571621-4k
+# Kleaf builds "-android15-8" + this + CONFIG_LOCALVERSION ("-4k").
+STOCK_SCMVERSION="${STOCK_SCMVERSION:--gb9cc6ec16bc8-abogki536571621}"
+STOCK_RELEASE="${STOCK_RELEASE:-6.6.118-android15-8-gb9cc6ec16bc8-abogki536571621-4k}"
+AK3_COMMIT="${AK3_COMMIT:-c072981836cd3ee46ad52a5f2cba76ecb927cb1b}"
 JOBS="${JOBS:-3}"
-mkdir -p "$DIST" "$REPORTS"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+mkdir -p "$DIST" "$REPORTS" "$OUT"
 
 case "${1:-}" in
   prepare)
@@ -22,11 +31,24 @@ case "${1:-}" in
     # Fetch the pinned upstream tag directly from its canonical URL.
     git -C common fetch --depth=1 https://android.googlesource.com/kernel/common "refs/tags/$GKI_TAG:refs/tags/$GKI_TAG"
     git -C common checkout --detach "refs/tags/$GKI_TAG"
-    echo "Kernel common remotes:"
-    git -C common remote -v || true
+    grep -qx 'SUBLEVEL = 118' common/Makefile || { echo "$GKI_TAG is not 6.6.118" >&2; exit 1; }
     git -C common rev-parse HEAD | tee "$REPORTS/gki.commit"
     git -C common describe --always --tags | tee "$REPORTS/gki.tag"
     df -h "$ROOT"
+    ;;
+  patch)
+    test -d "$ROOT/common/drivers" || { echo 'Run prepare first'; exit 1; }
+    cd "$ROOT"
+    # Same uname -r / vermagic as stock instead of "-maybe-dirty".
+    stamp=build/kernel/kleaf/impl/stamp.bzl
+    grep -Fq "stable_scmversion_cmd = \"echo '-maybe-dirty'\"" "$stamp"
+    sed -i "s|stable_scmversion_cmd = \"echo '-maybe-dirty'\"|stable_scmversion_cmd = \"echo '$STOCK_SCMVERSION'\"|" "$stamp"
+    grep -Fq "echo '$STOCK_SCMVERSION'" "$stamp"
+    grep -qx 'CONFIG_LOCALVERSION="-4k"' common/arch/arm64/configs/gki_defconfig
+    # The two Xiaomi-private F2FS vendor hooks still missing from public GKI.
+    python3 "$HERE/add_xiaomi_hooks.py" common
+    git -C common diff > "$REPORTS/xiaomi_hooks.patch"
+    git -C build/kernel diff > "$REPORTS/stamp.patch"
     ;;
   integrate)
     test -d "$ROOT/common/drivers" || { echo 'Run prepare first'; exit 1; }
@@ -82,11 +104,6 @@ PY
     grep -Fq 'obj-$(CONFIG_KSU) += kernelsu/' common/drivers/Makefile
     grep -q '^[[:space:]]*default y' KernelSU/kernel/Kconfig
     readlink -f common/drivers/kernelsu | grep -Fx "$(realpath KernelSU/kernel)"
-    printf 'KSU config uses default y; no redundant CONFIG_KSU=y in minimal defconfig.\n' | tee "$REPORTS/ksu.defconfig"
-    printf 'KPROBES from GKI defconfig: ' >> "$REPORTS/ksu.defconfig"
-    grep '^CONFIG_KPROBES=' "$cfg" | tee -a "$REPORTS/ksu.defconfig" || true
-    printf 'EXT4_FS from GKI defconfig: ' >> "$REPORTS/ksu.defconfig"
-    grep '^CONFIG_EXT4_FS=' "$cfg" | tee -a "$REPORTS/ksu.defconfig" || true
     git -C common diff -- drivers/Kconfig drivers/Makefile arch/arm64/configs/gki_defconfig > "$REPORTS/integration.patch"
     ;;
   build)
@@ -96,12 +113,34 @@ PY
     tools/bazel run //common:kernel_aarch64_dist -- "--destdir=$DIST" 2>&1 | tee "$REPORTS/bazel.log"
     test -s "$DIST/Image" || { echo 'Missing Image'; exit 1; }
     ;;
-  inspect)
-    test -s "$DIST/Image" || { echo 'No Image, cannot inspect'; exit 1; }
-    python3 "$(dirname "$0")/inspect_image.py" "$DIST/Image" "$REPORTS/inspection.json"
+  verify)
+    test -s "$DIST/Image" || { echo 'No Image, cannot verify'; exit 1; }
+    symvers="$DIST/Module.symvers"
+    if [ ! -s "$symvers" ]; then
+      symvers="$(find "$ROOT/out" -type f -name Module.symvers -size +100k -print -quit 2>/dev/null || true)"
+    fi
+    test -s "$symvers" || { echo 'Module.symvers not found' >&2; exit 1; }
+    cp "$symvers" "$REPORTS/Module.symvers"
+    python3 "$HERE/verify_build.py" "$DIST/Image" "$REPORTS/Module.symvers" "$STOCK_RELEASE" "$REPORTS/verify.json"
+    ;;
+  package)
+    test -s "$DIST/Image" || { echo 'No Image, cannot package'; exit 1; }
+    ak3="$ROOT/AnyKernel3"
+    rm -rf "$ak3"
+    git init -q "$ak3"
+    git -C "$ak3" fetch -q --depth=1 https://github.com/osm0sis/AnyKernel3 "$AK3_COMMIT"
+    git -C "$ak3" checkout -q FETCH_HEAD
+    rm -rf "$ak3/.git" "$ak3/.github" "$ak3/README.md" "$ak3/modules" "$ak3/patch" "$ak3/ramdisk"
+    cp "$HERE/anykernel.sh" "$ak3/anykernel.sh"
+    cp "$DIST/Image" "$ak3/Image"
+    ksu_ver="$(cat "$REPORTS/kernelsu.version")"
+    zip_name="AK3-xuanyuan-${STOCK_RELEASE%%-android*}-KernelSU-${KSU_TAG}-${ksu_ver}.zip"
+    (cd "$ak3" && zip -r9 "$OUT/$zip_name" . -x '.git*')
+    cp "$DIST/Image" "$OUT/Image"
+    (cd "$OUT" && sha256sum "$zip_name" Image | tee SHA256SUMS)
     ;;
   *)
-    echo "Usage: $0 prepare|integrate|build|inspect"
+    echo "Usage: $0 prepare|patch|integrate|build|verify|package"
     exit 2
     ;;
 esac

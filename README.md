@@ -1,32 +1,64 @@
-# KernelSU GKI built-in prototype — Xiaomi 15 Ultra (xuanyuan)
+# KernelSU 内置 GKI 内核 — 小米 15 Ultra (xuanyuan)
 
-> **Experimental build only. Do not flash any produced Image or boot.img.**
->
-> The GKI kernel below is a **candidate AOSP baseline**, NOT proven byte-for-byte or ABI compatible with the vendor kernel in HyperOS 4.
+> **实验性构建，未经实机验证能开机。** HyperOS 4 原厂内核是小米闭源定制的 OGKI
+> (`6.6.118-android15-8-gb9cc6ec16bc8-abogki536571621-4k`)，公开 AOSP 源码无法完全还原。
+> 刷入前务必备份，并确认能用 fastboot 救回。
 
-## Device and source baseline
+## 这一版做了什么
 
-- Device: Xiaomi 15 Ultra (`xuanyuan`)
-- OS: Android 17, HyperOS `OS4.0.0.16.XOACNXM`
-- Stock kernel: `6.6.118-android15-8-gb9cc6ec16bc8-abogki536571621-4k`
-- Boot image: `boot_b.img`, Android boot header v4, 96 MiB (kept offline; **never upload personal partition data to this public repository**)
-- AOSP candidate: `common-android15-6.6-2026-01` at kernel tag `android15-6.6-2026-01_r2`
-- KernelSU: `tiann/KernelSU` tag `v3.3.1`, compiled **built-in** with `CONFIG_KSU=y`, not LKM.
+GitHub Actions 工作流 [`kernel-gki.yml`](.github/workflows/kernel-gki.yml)：
 
-## CI
+1. 源码：AOSP `android15-6.6-2026-01_r43`（Linux 6.6.118，KMI `android15-8`，与原厂相同）。
+2. **版本号与原厂一字不差**：`6.6.118-android15-8-gb9cc6ec16bc8-abogki536571621-4k`（脚本校验，不一致即失败）。
+3. **补齐原厂独有的 vendor hook**：r43 已含 14 个中的 12 个；另外两个小米私有 F2FS hook
+   `android_vh_f2fs_is_hiprio_task` / `android_vh_f2fs_is_usr_task` 按原厂 BTF 中的原型
+   `(int *ret)` 声明、导出并加入 KMI 列表，避免厂商驱动因 "unknown symbol" 加载失败。
+4. KernelSU `v3.3.1` 内置（`CONFIG_KSU=y`）。
+5. 产物是 **AnyKernel3 刷机包**：只替换手机自身 boot 里的内核，原厂 boot 头、安全补丁级别、
+   cmdline、AVB footer 和内嵌 vbmeta 全部保留（不修改 vbmeta 标志）。
 
-See [GitHub Actions](../../actions): a push to `main` triggers the experimental build, with an optional manual rerun.
+之前三次失败的测试记录见 [`analysis/`](analysis/)。
 
-The workflow:
-1. Frees unneeded space on ephemeral Ubuntu runner, installs Google's `repo` tool.
-2. Syncs the fixed manifest branch, checks out the candidate GKI tag, records exact SHA.
-3. Checks out KernelSU v3.3.1, integrates kernel code, enables `CONFIG_KSU=y`.
-4. Builds `//common:kernel_aarch64_dist` with Kleaf/Bazel.
-5. Verifies that output contains `CONFIG_KSU=y`, records versions, uploads **unflashable** Image and diagnostic logs.
+## 下载
 
-**Known limitations:** A matching Linux version/KMI alone cannot ensure that Xiaomi vendor modules or AVB chain will accept the kernel. A successful CI build is only the first gate. No automatic repacking or flashing is included.
+Actions → 最新一次成功的 “Build KernelSU GKI AnyKernel3 (xuanyuan)” → Artifacts →
+`AnyKernel3-xuanyuan-KernelSU-v3.3.1`（解压后得到 `AK3-xuanyuan-...zip`）。
 
-References:
-- https://source.android.com/docs/core/architecture/kernel/gki-android15-6_6-release-builds
+## 刷机前准备（必须）
+
+1. 用 root shell 备份当前**两个**分区（`_b` 换成你的当前槽位，`getprop ro.boot.slot_suffix` 可查）：
+   ```sh
+   su
+   dd if=/dev/block/by-name/boot_b of=/sdcard/Download/boot_b_stock.img bs=1M
+   dd if=/dev/block/by-name/init_boot_b of=/sdcard/Download/init_boot_b_lkm.img bs=1M
+   ```
+   拷到电脑上。
+2. 电脑上准备好 `fastboot`。
+
+## 刷机
+
+内置版 KernelSU 不能与 LKM 版同时存在，所以要先恢复原厂 init_boot：
+
+1. KernelSU 管理器 → 卸载 → **还原原厂镜像**（先不要重启）。如果没有这个选项，
+   就从同版本 `OS4.0.0.16.XOACNXM` 完整卡刷包的 `payload.bin` 提取原厂 `init_boot.img`，
+   刷完 zip 后在 fastboot 里 `fastboot flash init_boot init_boot.img`。
+2. 用 Kernel Flasher / Horizon Kernel Flasher 刷入 AnyKernel3 zip（刷到当前槽位）。
+3. 重启。开机后安装 KernelSU 管理器 v3.3.1，应显示“工作中（内置/GKI）”。
+
+## 卡开机怎么救
+
+进 fastboot（关机后按住音量下 + 电源），在电脑上执行：
+
+```sh
+fastboot flash boot boot_b_stock.img
+fastboot flash init_boot init_boot_b_lkm.img
+fastboot reboot
+```
+
+即可回到刷机前的状态（原厂内核 + LKM 版 KernelSU）。
+
+## 参考
+
 - https://github.com/tiann/KernelSU/releases/tag/v3.3.1
-- https://kernelsu.org/guide/how-to-build.html
+- https://kernelsu.org/guide/installation.html
+- https://github.com/osm0sis/AnyKernel3

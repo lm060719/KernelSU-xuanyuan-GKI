@@ -1,18 +1,28 @@
-name: Experimental KernelSU built-in GKI (xuanyuan)
+name: Build KernelSU GKI AnyKernel3 (xuanyuan)
 
 on:
   push:
-    branches: [main]
+    branches: [main, ccr-ba96cc45-3k0iz3]
     paths:
       - ".github/workflows/kernel-gki.yml"
-      - "scripts/**"
+      - "scripts/build.sh"
+      - "scripts/add_xiaomi_hooks.py"
+      - "scripts/verify_build.py"
+      - "scripts/anykernel.sh"
   workflow_dispatch:
+    inputs:
+      gki_tag:
+        description: "AOSP GKI tag (must be 6.6.118)"
+        default: android15-6.6-2026-01_r43
+      ksu_tag:
+        description: "KernelSU tag"
+        default: v3.3.1
 
 permissions:
   contents: read
 
 concurrency:
-  group: experimental-gki-${{ github.ref }}
+  group: kernelsu-gki-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -23,19 +33,19 @@ jobs:
       GKI_ROOT: ${{ github.workspace }}/gki
       DIST_DIR: ${{ github.workspace }}/dist
       REPORT_DIR: ${{ github.workspace }}/reports
+      OUT_DIR: ${{ github.workspace }}/out
       MANIFEST_BRANCH: common-android15-6.6-2026-01
-      GKI_TAG: android15-6.6-2026-01_r2
-      KSU_TAG: v3.3.1
+      GKI_TAG: ${{ inputs.gki_tag || 'android15-6.6-2026-01_r43' }}
+      KSU_TAG: ${{ inputs.ksu_tag || 'v3.3.1' }}
       JOBS: "3"
     steps:
       - name: Checkout build scripts
         uses: actions/checkout@v4
 
-      - name: Recover runner disk space (ephemeral CI only)
+      - name: Recover runner disk space
         shell: bash
         run: |
           set -euxo pipefail
-          df -h
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache /usr/local/share/powershell /usr/share/swift
           sudo docker system prune -af || true
           df -h
@@ -51,66 +61,47 @@ jobs:
           chmod +x "$HOME/.local/bin/repo"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - name: Sync fixed AOSP GKI sources
-        shell: bash
-        run: |
-          set -euxo pipefail
-          bash scripts/build.sh prepare
+      - name: Sync AOSP GKI 6.6.118 sources
+        run: bash scripts/build.sh prepare
+
+      - name: Match stock version string and add Xiaomi F2FS hooks
+        run: bash scripts/build.sh patch
 
       - name: Integrate KernelSU built-in
-        shell: bash
-        run: |
-          set -euxo pipefail
-          bash scripts/build.sh integrate
+        run: bash scripts/build.sh integrate
 
       - name: Compile with Kleaf / Bazel
-        shell: bash
-        run: |
-          set -euxo pipefail
-          bash scripts/build.sh build
+        run: bash scripts/build.sh build
 
-      - name: Verify Image static metadata
-        shell: bash
-        run: |
-          set -euxo pipefail
-          bash scripts/build.sh inspect
+      - name: Verify Image against stock
+        run: bash scripts/build.sh verify
 
-      # Share only the freshly compiled public GKI symbol CRC table.
-      # Never upload stock vendor .ko samples or the user's boot image.
-      - name: Save GKI Module.symvers for offline ABI comparison
-        if: success()
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$REPORT_DIR"
-          if [ -s "$DIST_DIR/Module.symvers" ]; then
-            src="$DIST_DIR/Module.symvers"
-          else
-            src="$(find "$GKI_ROOT/out" -type f -name 'Module.symvers' -size +100k -print -quit 2>/dev/null || true)"
-          fi
-          if [ -n "${src:-}" ] && [ -s "$src" ]; then
-            cp "$src" "$REPORT_DIR/gki_Module.symvers"
-            wc -l "$REPORT_DIR/gki_Module.symvers"
-            sha256sum "$REPORT_DIR/gki_Module.symvers"
-          else
-            echo "Module.symvers unavailable in this build; CRC comparison not possible yet" | tee "$REPORT_DIR/symvers_missing.txt"
-            find "$DIST_DIR" -maxdepth 2 -type f -printf '%f %s bytes\n' | sort > "$REPORT_DIR/dist_files.txt"
-          fi
+      - name: Package AnyKernel3
+        run: bash scripts/build.sh package
 
-      - name: Upload diagnostics (even on failure)
+      - name: Upload reports (even on failure)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: experimental-gki-reports
+          name: build-reports
           path: reports/
           retention-days: 14
           if-no-files-found: warn
 
-      - name: Upload candidate Image (NOT FLASHABLE)
-        if: success()
+      - name: Upload AnyKernel3 zip
         uses: actions/upload-artifact@v4
         with:
-          name: experimental-kernelsu-image-not-for-flashing
-          path: dist/Image
-          retention-days: 7
+          name: AnyKernel3-xuanyuan-KernelSU-${{ env.KSU_TAG }}
+          path: |
+            out/*.zip
+            out/SHA256SUMS
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Upload raw Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: Image-xuanyuan-KernelSU-${{ env.KSU_TAG }}
+          path: out/Image
+          retention-days: 30
           if-no-files-found: error
