@@ -82,3 +82,21 @@ MT 单文件 `xuanyuan_MT_LKM_check_v3.sh` 保留 v2 全部只读检测，在模
 - **导出符号名覆盖不代表运行时 CRC、一致的结构体布局、kallsyms 能否访问或 init_boot LKM 在失败引导阶段是否成功加载。**
 - `r37` 若找不到某个符号，也不等于必定缺少；可能由另一 `.ko`、内核本地/非导出符号或手动重定位解析器提供。
 - 无需上传原始 init_boot，仍不刷机。等待新报告后才能继续做更强判断。
+
+## 2026-10-27 00:01 +0800：MT LKM v3 实际 ELF 符号分析
+
+收到用户本机只读报告 `xuanyuan_LKM_只读诊断_20261027_000117.txt`，确认：
+
+- 有效设备/固件仍是 `xuanyuan`、`OS4.0.0.16.XOACNXM`、`6.6.118-android15-8-gb9cc6ec16bc8-abogki536571621-4k`、槽位 `_b`。
+- 原厂 boot 完整哈希继续匹配；`init_boot` ramdisk 为 LZ4，包含真实 `kernelsu.ko` 330664B 和 `ksu_config`，当前 LKM 正常运行。
+- `kernelsu.ko` ELF64：`vermagic=6.6.127-4k-g46a034eca005-dirty SMP preempt mod_unload modversions aarch64`，`__versions` 真实存在但 `sh_size=0`，不存在 extended modversions 的两个节。
+- v3 手工解析 ELF `.symtab`：总 1753 个 symbol table entry，去重后有 **225 个 SHN_UNDEF 名称**。
+- 与已编译 r37 `Module.symvers`（9450 导出）仅按符号**名称**比较：**155 个**出现在导出表中；**70 个**未在导出表中。注意仅打印了 70 项中的前 35 项。
+- 非导出例子包含 `__arm64_sys_close`、`__arm64_sys_setns`、`__tracepoint_sys_enter`、`commit_creds`、`avc_has_perm`、`kallsyms_lookup`、`kallsyms_lookup_name`、`init_mm` 等，均可能是内核**内部**符号，绝不应简单宣称 70 项「在 r37 内核不存在」。
+- Linux 官方说明 `Module.symvers` **只包含导出符号及其 CRC**：https://docs.kernel.org/kbuild/modules.html。v3 没有读取 `vmlinux` 或 `System.map`，**不能判断 70 个名字是否存在于 r37 的实际内核符号表**，更不能推断加载时 kallsyms 查找和 ELF 重定位必定成功。
+- `__versions` 为空时**无法做符号 CRC 校验**，也不应该说 155 个已通过 CRC 校验；当前结果只能说明名称交集。
+- 这个模块能在原厂 6.6.118 下加载，说明版本号 `6.6.127` 的不同本身不是无法加载的充分条件；不证明 r37 的非导出符号布局、可寻址性或初始化安全。
+
+**对启动故障的严格结论：** r28 built-in + 原厂 init_boot 仍失败；纯 r28/r37 + 含 KernelSU LKM 的 init_boot 也失败；没有完整 root-free 的 GKI 实机对照。不能根据 70 个未导出符号单独断言「KSU 与 r37 不兼容」。继续保持已恢复的原厂 boot，不进行第四次未证实的刷机。
+
+**建议下一步：** 若继续做深入离线分析，应从**同一 r37 CI 构建**获取未剥离的 `vmlinux` / `System.map`（或同等完整符号表），与此真实 `kernelsu.ko` 的所有 225 个未定义符号逐一核对**是否存在**。优先核对 70 项不在 `Module.symvers` 的符号；即使全存在，仍然需要实际启动失败日志或同版本 OEM 源码排查 ABI/时序。考虑用户已反复配合运行脚本，当前信息足以停止继续要求无明确增益的 MT v4/下一次刷机。
