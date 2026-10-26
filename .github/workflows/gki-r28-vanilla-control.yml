@@ -1,0 +1,112 @@
+name: Vanilla GKI r28 control (NO KernelSU, NO FLASH)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/gki-r28-vanilla-control.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r28-vanilla-control-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  vanilla:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    env:
+      GKI_ROOT: ${{ github.workspace }}/gki
+      DIST_DIR: ${{ github.workspace }}/dist
+      REPORT_DIR: ${{ github.workspace }}/reports
+      MANIFEST_BRANCH: common-android15-6.6-2026-01
+      GKI_TAG: android15-6.6-2026-01_r28
+      JOBS: '3'
+    steps:
+      - name: Checkout repository build scripts
+        uses: actions/checkout@v4
+
+      - name: Recover runner disk space (ephemeral runner only)
+        shell: bash
+        run: |
+          set -euxo pipefail
+          df -h
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache /usr/local/share/powershell /usr/share/swift
+          sudo docker system prune -af || true
+          df -h
+
+      - name: Install identical AOSP repo dependencies
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends git python3 curl ca-certificates unzip zip zstd xz-utils build-essential
+          mkdir -p "$HOME/.local/bin"
+          curl -fL --retry 3 -o "$HOME/.local/bin/repo" https://storage.googleapis.com/git-repo-downloads/repo
+          chmod +x "$HOME/.local/bin/repo"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Check out identical pinned GKI r28 source
+        shell: bash
+        run: bash scripts/build.sh prepare
+
+      - name: Assert pristine GKI tree without KernelSU
+        shell: bash
+        run: |
+          set -euxo pipefail
+          test ! -e "$GKI_ROOT/KernelSU"
+          test ! -e "$GKI_ROOT/common/drivers/kernelsu"
+          ! grep -Fq 'source "drivers/kernelsu/Kconfig"' "$GKI_ROOT/common/drivers/Kconfig"
+          ! grep -Fq 'obj-$(CONFIG_KSU) += kernelsu/' "$GKI_ROOT/common/drivers/Makefile"
+          git -C "$GKI_ROOT/common" diff --exit-code
+          git -C "$GKI_ROOT/common" rev-parse HEAD > "$REPORT_DIR/control_gki.commit"
+          printf '%s\n' 'vanilla: no KernelSU integration, identical r28 pinned baseline' | tee "$REPORT_DIR/control_baseline.txt"
+
+      - name: Build vanilla GKI using identical Kleaf target
+        shell: bash
+        run: bash scripts/build.sh build
+
+      - name: Verify no KernelSU and preserve Xiaomi task extensions
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 scripts/inspect_vanilla_image.py "$DIST_DIR/Image" "$REPORT_DIR/control_inspection.json"
+
+      - name: Export vanilla GKI Module.symvers
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$REPORT_DIR"
+          if [ -s "$DIST_DIR/Module.symvers" ]; then
+            src="$DIST_DIR/Module.symvers"
+          else
+            src="$(find "$GKI_ROOT/out" -type f -name Module.symvers -size +100k -print -quit 2>/dev/null || true)"
+          fi
+          if [ -n "${src:-}" ] && [ -s "$src" ]; then
+            cp "$src" "$REPORT_DIR/vanilla_Module.symvers"
+            wc -l "$REPORT_DIR/vanilla_Module.symvers"
+          else
+            echo 'Module.symvers unavailable; report-only diagnostic' > "$REPORT_DIR/symvers_missing.txt"
+          fi
+
+      - name: Upload control diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vanilla-r28-control-reports
+          path: reports/
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Upload vanilla control Image (NOT FLASHABLE)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vanilla-r28-control-image-not-for-flashing
+          path: dist/Image
+          retention-days: 7
+          if-no-files-found: error
