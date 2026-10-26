@@ -78,3 +78,17 @@ android_vh_sdhci_get_cd
 - [同内核字符串的小米 15（dada）研究记录](https://github.com/Re-s/Mi15-Droidspaces-Kernel/blob/main/docs/RESEARCH.md)：另一机型，不等同于 xuanyuan 实测。
 
 **当前既没有实机成功启动证据，也不具备支持刷写的新 boot.img。**
+
+
+## r37 纯 GKI 实际编译完成及离线 ABI 验证（2026-10-26）
+
+[成功工作流 #40330094335](https://github.com/lm060719/KernelSU-xuanyuan-GKI/actions/runs/40330094335)
+
+- `GKI_TAG=android15-6.6-2026-01_r37`，Kleaf 成功生成无 KernelSU 的 ARM64 `Image`。
+- `Image` 的 `__traceiter_android_*` 总数 **794**，而用户原厂 **796**，先前失败的 r28 **782**。
+- 14 个 r28 缺失的原厂 Hook 中，**12 个恢复**，产物 `Image` 字符串和 `Module.symvers` 均确认导出；仍缺小米 F2FS 私有 Hook：`android_vh_f2fs_is_hiprio_task`、`android_vh_f2fs_is_usr_task`。
+- r28 导出 **9427** 个、r37 **9450** 个；共有 **9423** 个符号全部 CRC 相同；新增 **27** 个，移除 **4** 个。
+- 使用用户早先提交的 58 个真实 `.ko` 进行私下只读检查：包含 **1095** 个唯一 `__versions` 导入；与 r37 的 GKI 导出相交 **823** 个，**0** CRC 冲突；四个被 r37 移除的导出在这 58 个模块中**未发现引用**。有 **272** 项需从其他厂商模块或内建功能进一步解析（既有报告划分为采集样本互相提供的 144 + 缺提供方的 128），不能算作 r37 单独缺失。
+- 相比 r28，模块抽样 CRC 并没有退步。这只是局部 ABI 验证，**不是实机可启动证明**。
+- 原厂 boot v4 容器支持独立离线打包，固定大小 **100663296 字节**、原厂 `boot.security_patch=2026-09-01`；重打包原厂内核与原厂完整镜像逐字节一致。已离线制作单独标记的 **纯 r37 无 KSU、未测试**对照 boot.img（文件保留在用户会话工作区，**未发布到公有 GitHub 仓库**，也未刷机）。
+- 与 r28 对照镜像一样，新 `boot.img` 不是原厂签名，**可能卡第二屏**；禁止宣称「可稳定启动」、禁止改变 patchlevel、不可双槽同时测试。
