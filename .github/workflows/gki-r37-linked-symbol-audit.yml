@@ -116,6 +116,8 @@ jobs:
             exit 2
           fi
           python3 research/audit_r37_lkm_symbol_map.py "$SMAP" "$REPORT_DIR/vanilla_Module.symvers" "$DIST_DIR/Image" "$REPORT_DIR/r37_linked_lkm"
+          # Preserve the full linked map for subsequent symbol checks without recompilation.
+          cp "$SMAP" "$REPORT_DIR/r37_linked_lkm/System.map"
           sha256sum "$SMAP" "$DIST_DIR/Image" > "$REPORT_DIR/r37_linked_lkm/build_sha256.txt"
 
       - name: Upload control diagnostic logs
