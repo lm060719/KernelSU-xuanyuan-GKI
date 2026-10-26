@@ -1,0 +1,35 @@
+name: Xiaomi official xuanyuan OSS source audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/official-xuanyuan-oss-audit.yml'
+      - 'research/audit_official_xuanyuan.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - name: Checkout our analysis scripts
+        uses: actions/checkout@v4
+
+      - name: Check out official Xiaomi 6.6.30 storage and ABI source, then diff GKI
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 research/audit_official_xuanyuan.py
+
+      - name: Upload reproducible source provenance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: official-xuanyuan-oss-source-audit
+          path: reports/official_xuanyuan/
+          retention-days: 21
+          if-no-files-found: warn
