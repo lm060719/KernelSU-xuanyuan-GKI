@@ -92,3 +92,33 @@ android_vh_sdhci_get_cd
 - 相比 r28，模块抽样 CRC 并没有退步。这只是局部 ABI 验证，**不是实机可启动证明**。
 - 原厂 boot v4 容器支持独立离线打包，固定大小 **100663296 字节**、原厂 `boot.security_patch=2026-09-01`；重打包原厂内核与原厂完整镜像逐字节一致。已离线制作单独标记的 **纯 r37 无 KSU、未测试**对照 boot.img（文件保留在用户会话工作区，**未发布到公有 GitHub 仓库**，也未刷机）。
 - 与 r28 对照镜像一样，新 `boot.img` 不是原厂签名，**可能卡第二屏**；禁止宣称「可稳定启动」、禁止改变 patchlevel、不可双槽同时测试。
+
+
+## 实机测试已失败：r37 仍然卡第二屏（2026-10-26）
+
+用户已实际将「纯 GKI `android15-6.6-2026-01_r37`、无 KernelSU」的对照 `boot.img` 刷入小米 15 Ultra `xuanyuan`；仍**卡第二屏**。随即刷回**同固件原厂 `boot_b.img`**，手机**再次正常开机**，未报告数据丢失。
+
+因此不能把 12 个标准 Hook 的补齐视为解决 bootloop，也不能仅因构建通过、CRC 抽样相同而再劝刷后续 GKI。测试过的三类镜像：r28+KSU、r28 pure、r37 pure，全部失败。**停止重复刷机。**
+
+### 关键新增证据：原厂 vs r37 内核实际 IKCONFIG 全量比较
+
+从原厂 `boot_b.img` 的 kernel payload 和 CI `vanilla-r37-hook-control-Image-NOT-FLASHABLE` Image 中直接解出嵌入的 IKCONFIG：
+
+- 原厂发现 **6191** 条明确的 `CONFIG_*` 设置（含 `not set`），r37 为 **6184**。
+- 两者**仅有 7 条差异**，均为原厂 `=y`、通用 r37 **没有同名配置项**（不是值为 n）：
+  - `CONFIG_BLOCK_HYBRID_UFS`
+  - `CONFIG_F2FS_FS_HYBRID_UFS`
+  - `CONFIG_F2FS_VIP_FILE`
+  - `CONFIG_SCSI_DISCARD`
+  - `CONFIG_SCSI_FASTDISCARD`
+  - `CONFIG_XIAOMI_ENHANCED_IOSTAT`
+  - `CONFIG_XIAOMI_EROFS_IOSTAT`
+- 这**不能**说明全部编译代码一致：同一 Kconfig 可以对应不同代码实现、结构体布局、配置依赖、厂商下游补丁。原厂版本横幅与 GKI r37 的构建标识仍有差异。
+
+上述配置涉及存储、文件系统与 I/O；在 OS4 原厂真正的 6.6.118 对应完整私有源码缺失时，不能直接将旧版本的配置名称追加到 GKI。必须先找到源码实现并确认其接口/KMI/行为。**七项差异是最具体的候选原因，未有失败时内核日志直接归因。**
+
+### 后续门槛
+
+1. 无日志/无同版本 OEM 源码时不建议用户继续盲刷同一 GKI 系列；保留已验证正常的原厂 boot。
+2. 优先核实同版本 Xiaomi OEM 存储补丁的真实源码，或者在保留原厂 boot 的基础上使用非重编内核的 Root 方案（如果用户接受它与 built-in KSU 不等价）。
+3. 新验证必须具备实际 boot-stage/内核错误证据，CI success 不是启动能力证明。
