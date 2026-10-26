@@ -53,3 +53,32 @@ sha256sum /sdcard/Download/init_boot_b_current.img
 - 不凭 `vermagic` 字符串单独否定模块兼容性；也不能凭 58 个样本的 CRC 一致就确认全部模块与内核兼容。
 
 **下一个最有信息增益的证据**：从修补版 init_boot 确认具体加载链和二进制 LKM，结合用户现有 r37 Module.symvers 离线比较；随后再决定是否需要从同版本厂商源代码或 boot 阶段日志寻求证据。
+
+
+## 2026-10-26 23:51：MT LKM 诊断 v2 的真实发现
+
+用户使用 MT 管理器执行第二版 SH，上传 `xuanyuan_LKM_只读诊断_20261026_235148.txt`，报告所示：
+
+- 机型 `xuanyuan`，固件 `OS4.0.0.16.XOACNXM`，内核 `6.6.118-android15-8`，槽位 `_b`。
+- `boot_b` SHA256 `f082826b0e9ea020a5ab20db3dacc6814bbbe8b30e7a223eebd81f69d8eeac30`，仍然匹配原厂备份。
+- `init_boot_b` SHA256 `df4db6bc51607e60c4128be6a6c9d0faf22a0aeb23aa7e8a70fc475bbf252b49`。
+- `init_boot` 是 boot header v4，ramdisk LZ4；27 个 CPIO entry 中有 `kernelsu.ko`（330664 bytes）和 `ksu_config`（9 bytes），目前 `/proc/modules` 确认 KSU LKM 已加载。
+- KSU LKM SHA256 `e57ce23de951be6b0dee5030f6724322fed126aa4af71828994437bfb0bb61ad`。
+- KSU 模块 `vermagic=6.6.127-4k-g46a034eca005-dirty SMP preempt mod_unload modversions aarch64`。
+- v2 扩展 ELF 节解析结果：**`__versions` 存在，但 size=0；`__version_ext_names` 与 `__version_ext_crcs` 都不存在**。
+
+### 重要修正：空的版本节不是解析失败或 CRC 冲突证据
+
+有 KernelSU 手动重定位 / 模块加载构建方式**有意要求 `__versions` size=0**，并通过运行时 kallsyms 解析符号，不使用相应的 CRC 表。实证参考：
+- https://github.com/WitAqua-tools/Root-My-Device-Payloads/blob/main/src/kernelsu/README.md
+
+这说明本机 LKM 的格式与此种实现**一致**，但尚未实证这台手机实际采用的是哪一个具体的加载器和符号解析路径。不能再按纯 `Module.symvers` CRC 缺失得出兼容/不兼容结论。
+
+### 下一步工具
+
+MT 单文件 `xuanyuan_MT_LKM_check_v3.sh` 保留 v2 全部只读检测，在模块无非空版本节时新增**手工解析 ARM64 ELF64 SHT_SYMTAB + SHT_STRTAB**，列出全部普通 ELF `SHN_UNDEF` 符号（仅符号名）。将这些名字与已经构建的 r37 `Module.symvers` 导出名字集（9450 项）交叉对照。
+
+重要限制：
+- **导出符号名覆盖不代表运行时 CRC、一致的结构体布局、kallsyms 能否访问或 init_boot LKM 在失败引导阶段是否成功加载。**
+- `r37` 若找不到某个符号，也不等于必定缺少；可能由另一 `.ko`、内核本地/非导出符号或手动重定位解析器提供。
+- 无需上传原始 init_boot，仍不刷机。等待新报告后才能继续做更强判断。
