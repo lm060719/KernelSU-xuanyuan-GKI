@@ -1,3 +1,17 @@
+## 2026-10-27：BTF 核实原厂存在 GKI r37 没有的存储实现（优先级最高）
+
+[完整只读差异报告](https://github.com/lm060719/KernelSU-xuanyuan-GKI/blob/main/analysis/OS4_STOCK_VS_R37_BTF_STORAGE_GAP.md)
+
+- 直接解析用户能正常启动的原厂 `boot_b.img` 和 CI 已成功构建但**实机卡第二屏**的纯 `r37 Image` 内嵌 BTF：原厂独有 **80** 个 `BTF_KIND_FUNC` 名字，r37 独有 **5** 个，双方共用 **60395**。
+- 原厂独有函数确实涉及 `device_hybrid_capable`、`f2fs_hw_support_hybrid`、`f2fs_vip_insert`、`erofs_iostat_update`、`__drop_discard_cmd` 等；原厂在 F2FS/EROFS/Discard 内部有真实实现，不仅是七个 Kconfig 名称。
+- 两边共有名称的 **10 个 F2FS/EROFS/Discard struct** 大小不同，例：`f2fs_sb_info` **4920 vs 4592 字节**、`f2fs_inode_info` **1480 vs 1464**，还有多处成员偏移变化。
+- 这会使**跨代码/跨模块访问内部结构**存在潜在 ABI 风险，但**不能直接证明厂商模块实际访问了这些结构，更不能据此断言唯一启动故障根因**。
+- 用户 v3 的 70 个 LKM 名称不在 `Module.symvers` 导出表，而不是明确缺失；其中**已显示的 35 个**名称，原厂与 r37 两份 Image 都有 **33** 个完整 NUL 分隔名称命中，另两个均未通过字符串法确认，因此前 35 个未发现明确差异。
+- 已新建 **只读**完整 `System.map` 审计工作流，专门核对最终符号表；不会制造或推荐新刷机镜像。
+- **后续核心研究方向改为匹配 OS4 6.6.118 OEM F2FS/Hybrid UFS/SCSI 真实补丁来源及关键结构/Hook；不要仅重编 GKI。**
+
+---
+
 
 ## 2026-10-26：用户澄清测试时的 init_boot 状态（重要因果修正）
 
