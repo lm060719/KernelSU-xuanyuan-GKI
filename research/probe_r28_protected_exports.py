@@ -58,7 +58,7 @@ try:
     with urllib.request.urlopen(urllib.request.Request(directory), timeout=45) as res:
         listing = res.read().decode("utf-8", "replace")
     if listing.startswith(")]}'"):
-        listing = listing.split("\\n", 1)[1]
+        listing = listing.split("\n", 1)[1]
     entries = json.loads(listing).get("entries", [])
     names = [x["name"] for x in entries
              if x.get("type") == "blob"
@@ -92,4 +92,4 @@ except Exception as exc:
     summary["kmi_crosscheck"] = {"error": str(exc),
                                   "status": "inconclusive"}
     print("KMI list cross-check inconclusive:", str(exc))
-(DEST/"summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False)+"\\n")
+(DEST/"summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False)+"\n")
