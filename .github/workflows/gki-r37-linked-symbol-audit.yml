@@ -106,7 +106,8 @@ jobs:
         run: |
           set -euxo pipefail
           echo 'Direct dist outputs:'
-          ls -lh "$DIST_DIR" | head -60
+          ls -lh "$DIST_DIR" > "$REPORT_DIR/r37_dist_listing.txt"
+          sed -n '1,60p' "$REPORT_DIR/r37_dist_listing.txt"
           SMAP="$DIST_DIR/System.map"
           if [ ! -s "$SMAP" ]; then
             echo 'System.map was not in the distribution; looking only in the current checked-out build output.'
