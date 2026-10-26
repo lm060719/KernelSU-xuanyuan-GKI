@@ -1,0 +1,30 @@
+name: Xuanyuan stock hook tag audit (NO FLASH)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/xuanyuan-hook-tags-audit.yml'
+      - 'research/audit_xuanyuan_hook_tags.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout analysis scripts
+        uses: actions/checkout@v4
+      - name: Compare publicly available GKI monthly tags to stock-only hook list
+        run: python3 research/audit_xuanyuan_hook_tags.py
+      - name: Publish diagnostic matrix
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xuanyuan-14-missing-hook-tag-matrix
+          path: reports/xuanyuan_hook_tags/
+          retention-days: 21
+          if-no-files-found: warn
