@@ -1,0 +1,29 @@
+name: Protected export audit (read-only GKI r28)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/gki-r28-protected-export-audit.yml"
+      - "research/probe_r28_protected_exports.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-protected-exports:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch pinned AOSP r28 protected exports
+        run: python3 research/probe_r28_protected_exports.py
+      - name: Preserve upstream symbol lists
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r28-public-protected-exports
+          path: reports/protected_exports_probe/
+          retention-days: 14
+          if-no-files-found: warn
