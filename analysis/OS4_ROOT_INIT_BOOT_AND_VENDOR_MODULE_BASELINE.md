@@ -1,3 +1,34 @@
+
+## 2026-10-26：用户澄清测试时的 init_boot 状态（重要因果修正）
+
+用户明确说明：
+- **GKI r28 + KernelSU v3.3.1 built-in** 失败时，搭配的是**原厂 `init_boot`**。
+- **纯 GKI r28、纯 GKI r37** 失败时，搭配的均为**已经修补过的 `init_boot`（KernelSU LKM 环境）**。
+- 刷回原厂 `boot` 可以正常启动，目前的原厂 `boot_b` SHA256 已确认一致。
+
+### 重建真实试验矩阵
+
+| boot | init_boot | 实机 |
+|---|---|---|
+| 原厂 boot | 目前的修补版 init_boot（运行时 `/proc/modules` 有 `kernelsu`） | 正常 |
+| GKI r28 + KSU built-in | 原厂 init_boot | 第二屏卡住 |
+| 纯 GKI r28 | 修补版 init_boot（LKM 注入链未被隔离） | 第二屏卡住 |
+| 纯 GKI r37 | 修补版 init_boot（LKM 注入链未被隔离） | 第二屏卡住 |
+| 纯 GKI r28 / r37 | **原厂 init_boot** | **尚未做过有效对照，结果未知** |
+
+### 必须撤销先前过度推论
+
+此前文档以纯 GKI r28 也失败为理由断言「**KernelSU 不是 bootloop 的必要条件**」「问题来自共享通用 GKI 而与 KSU 无关」——**这一点尚无有效实机证据**：**三个失败组合中，内置版有 KernelSU built-in，两个纯 GKI 版则保留修补过的 init_boot、可能加载 KernelSU LKM**。因此迄今**没有一组已知完全不含 KernelSU 的替换 GKI 测试**。也未证实 LKM 一定已在卡第二屏前实际加载，更不能反向确定 LKM 就是根因。
+
+- built-in 镜像在**原厂 init_boot**下失败，故其故障不应归因于另一个已存在的 **LKM init_boot**。
+- vanilla r28/r37 在**修补 init_boot**下失败，无法排除已有 LKM 与替换的 GKI ABI/符号表/引导时序不匹配。
+- 各组也共用 AOSP 内核、boot 封装等变量。**OEM 七项存储配置与两个 F2FS 私有 Hook 是否致故障未获证实**。
+- 对照组最核心的缺口是「纯 r37 + 原厂 init_boot」，然而此前三次卡机且暂无可靠 boot-stage 日志，**不应仅为补齐矩阵就劝用户再刷**。
+
+**当前策略：保持现有能启动的原厂 boot + 已修补 init_boot，不对 init_boot 做未经授权的写入。优先离线分析 KernelSU LKM 及设备的厂商模块依赖，寻找能证明失败发生在哪个引导阶段的日志。**
+
+---
+
 # OS4.0.0.16 6.6.118：真实 Vendor .ko 版本与 Root 加载路径再审计
 
 ## 已从用户本机离线收集文件确认的事实
