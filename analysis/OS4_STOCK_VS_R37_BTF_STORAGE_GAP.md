@@ -130,3 +130,17 @@ r37 独有的五个 BTF 函数：`del_page_from_free_list`、`f2fs_reset_iostat`
 3. 若厂商模块访问内部结构，跨布局可能导致 ABI 风险；但这些结构自身也可能只由内核内建 F2FS 驱动内部使用。**不能从结构大小变化直接推断 vendor .ko 越界，必须有具体访问者和失败日志。**
 4. 仍以原厂 boot + 当前已修补 init_boot 的可工作组合为基准；不生成/推荐新刷机镜像。
 5. 独立的 [r37 System.map 链接符号审计](https://github.com/lm060719/KernelSU-xuanyuan-GKI/actions/workflows/gki-r37-linked-symbol-audit.yml) 用于证实内核符号是否真正链接，不能代替 OEM 存储代码恢复。
+
+
+## 2026-10-27 离线 .ko 实证：样本中没有 F2FS/UFS/EROFS 函数的未定义导入
+
+从用户此前自行采集的 3 份厂商模块归档（`xuanyuan_module_root_v4`、`xuanyuan_module_critical_mt_v5`、`xuanyuan_module_provider_mt_v6`）中按 basename 去重，实际得到 **58 个** `.ko`。对每个 ELF 执行 `readelf -W -s`，从 **SHN_UNDEF** 行提取外部符号名，按 `f2fs|erofs|ufs|discard|hybrid`（不区分大小写）查找。**58 个样本中命中数为 0**。
+
+解释范围：
+
+- 目前**没有证据**表明这 58 个模块通过外部符号直接调用刚发现的 OEM F2FS/EROFS/UFS 私有函数。
+- 这项检查 **不覆盖**按地址读取内部 struct、经符号解析器动态查找、访问 tracepoints、或尚未采集的数百个其他 `.ko`。
+- 原厂相对于 r37 的 10 组内部结构布局差异是真实的，但 **不能由此认定厂商模块因结构错位崩溃**；更可能需要从文件系统内部功能/挂载行为和启动日志两方面去寻找证据。
+- 因而优先级应为「恢复同版本 OEM 代码 / 捕获可复现的错误日志」，而非盲补 Kconfig 名称或内核 Hook。
+
+另一个单独的 CI 问题：完整 r37 `System.map` 审计 #40357156188 内核构建成功，`System.map` 确已输出约 4.6 MB，但工作流 `ls -lh ... | head -60` 在 `set -o pipefail` 下以 SIGPIPE 提前结束。已修复为先写列表到文件再用 `sed` 打印，重运行 [#40417550599](https://github.com/lm060719/KernelSU-xuanyuan-GKI/actions/runs/40417550599)。
