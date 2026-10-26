@@ -93,6 +93,33 @@ def main():
                         "stock_only_members":sorted(ap.keys()-bp.keys()),
                         "gki_only_members":sorted(bp.keys()-ap.keys()),
                         "shifted_members":sorted(x for x in ap.keys()&bp.keys() if ap[x]!=bp[x])})
+    # Common on-disk F2FS/EROFS layout names and separate DM runtime wrappers.
+    # Compare names, bit offsets, bitfield sizes and sizeof, not BTF type IDs
+    # (type IDs are local to each kernel build and cannot be compared directly).
+    disk_names = ["f2fs_super_block", "f2fs_checkpoint", "f2fs_inode",
+                  "f2fs_nat_block", "f2fs_node", "f2fs_summary_block",
+                  "erofs_super_block"]
+    dm_names = ["dm_target", "dm_dev"]
+    disk_layout = []
+    for name in disk_names + dm_names:
+        key = (4, name)
+        aa = a["structs"].get(key, [])
+        bb = b["structs"].get(key, [])
+        if len(aa) == 1 and len(bb) == 1:
+            (asz, am), (bsz, bm) = aa[0], bb[0]
+            disk_layout.append({
+                "struct": name,
+                "category": "on_disk" if name in disk_names else "device_mapper_runtime",
+                "stock_size": asz,
+                "gki_size": bsz,
+                "stock_member_count": len(am),
+                "gki_member_count": len(bm),
+                "same_size_and_member_offsets": (asz == bsz and am == bm),
+                "limitation": "Identical BTF layout cannot establish on-disk feature flags or runtime behavior"
+            })
+        else:
+            disk_layout.append({"struct": name, "stock_records": len(aa),
+                                "gki_records": len(bb), "comparison": "ambiguous"})
     report={
         "stock_kernel_sha256":hashlib.sha256(raw_stock).hexdigest(),
         "gki_kernel_sha256":hashlib.sha256(raw_gki).hexdigest(),
@@ -100,6 +127,7 @@ def main():
         "stock_btf_func_count":len(a["funcs"]),"gki_btf_func_count":len(b["funcs"]),
         "stock_only_funcs":only_stock,"gki_only_funcs":only_gki,
         "changed_struct_records":changes,
+        "selected_storage_layouts":disk_layout,
         "safe_to_flash":False,
         "limitations":["BTF is not full System.map",
                        "BTF differences do not establish boot failure mechanism",
@@ -117,7 +145,15 @@ def main():
            "|---|---:|---:|---:|"]
     lines += ["| "+x["name"]+" | "+str(x["stock_bytes"])+" | "+str(x["gki_bytes"])+
               " | "+str(len(x["shifted_members"]))+" |" for x in changes]
-    lines += ["","No flashable images are made by this tool.",""]
+    lines += ["","## Selected storage/on-disk layouts","",
+              "| Name | Class | Stock bytes | GKI bytes | Same member layout |",
+              "|---|---|---:|---:|---|"]
+    lines += ["| "+x["struct"]+" | "+x.get("category","unknown")+" | "+
+              str(x.get("stock_size","?"))+" | "+str(x.get("gki_size","?"))+
+              " | "+str(x.get("same_size_and_member_offsets","ambiguous"))+" |"
+              for x in disk_layout]
+    lines += ["","BTF equality does not establish equal on-disk feature-bit semantics.",
+              "No flashable images are made by this tool.",""]
     (out/"README.md").write_text("\n".join(lines))
     print("Stock-only functions",len(only_stock),"r37-only functions",len(only_gki))
     print("Struct layouts changed",len(changes))
