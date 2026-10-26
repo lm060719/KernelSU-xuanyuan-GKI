@@ -57,7 +57,7 @@ def inspect(tag):
         k: re.search(r"^" + k + r"\s*=\s*(\d+)", makefile, re.M).group(1)
         for k in ("VERSION", "PATCHLEVEL", "SUBLEVEL")
     }
-    known = set(re.findall(r"EXPORT_TRACEPOINT_SYMBOL(?:_GPL)?\s*\(\s*(android_[vr]vh_[A-Za-z0-9_]+)\s*\)", exported))
+    known = set(re.findall(r"EXPORT_TRACEPOINT_SYMBOL(?:_GPL)?\s*\(\s*(android_(?:rvh|vh)_[A-Za-z0-9_]+)\s*\)", exported))
     # Count only the 14 established missing hooks; no guessing from modules.
     return {
         "tag": tag,
