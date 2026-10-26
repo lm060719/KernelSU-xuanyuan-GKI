@@ -100,3 +100,25 @@ MT 单文件 `xuanyuan_MT_LKM_check_v3.sh` 保留 v2 全部只读检测，在模
 **对启动故障的严格结论：** r28 built-in + 原厂 init_boot 仍失败；纯 r28/r37 + 含 KernelSU LKM 的 init_boot 也失败；没有完整 root-free 的 GKI 实机对照。不能根据 70 个未导出符号单独断言「KSU 与 r37 不兼容」。继续保持已恢复的原厂 boot，不进行第四次未证实的刷机。
 
 **建议下一步：** 若继续做深入离线分析，应从**同一 r37 CI 构建**获取未剥离的 `vmlinux` / `System.map`（或同等完整符号表），与此真实 `kernelsu.ko` 的所有 225 个未定义符号逐一核对**是否存在**。优先核对 70 项不在 `Module.symvers` 的符号；即使全存在，仍然需要实际启动失败日志或同版本 OEM 源码排查 ABI/时序。考虑用户已反复配合运行脚本，当前信息足以停止继续要求无明确增益的 MT v4/下一次刷机。
+
+
+## 2026-10-27：完成 r37 全量 System.map 审计 — 35/35 均真实链接
+
+[成功执行的 GitHub Actions #40417550599](https://github.com/lm060719/KernelSU-xuanyuan-GKI/actions/runs/40417550599)；产物 `r37-full-linked-symbol-audit-reports`，包含完整 `System.map`（4,794,649 bytes）、`vanilla_Module.symvers` 及 JSON 逐符号报告。
+
+- 纯 r37 `System.map`：**106,073** 个独立符号名；`Module.symvers`：**9,450** 项导出。
+- 对用户 MT V3 报告**显示的前 35 个** LKM 未定义、但不在 `Module.symvers` 的符号进行核验：**35/35 在完整链接后的 `System.map` 中有实际定义；0/35 缺失**。
+- 特别是先前 raw Image 字符串检查无法确认的 `init_mm` 和 `__tracepoint_sys_enter`，在新的 `System.map` 中均为定义型 `D` **数据符号**，非找不到的函数。
+- MT V3 曾报告 **70** 项不在 `Module.symvers`，但只打印其中 **35** 个。**其余 35 个没有收到完整名单，不能声称 70/70 都存在。**
+- 这只能排除“已经显示的这 35 个名字在同一 r37 源码构建的链接内核中根本不存在”的假设，**不能证明 LKM 的手动符号重定位／kallsyms 解析可以成功，也不能证明同版本 OEM hook/ABI 与用户空间兼容**。
+
+### 复现一致性：有重要限制
+
+- 新一轮编译与用户此前刷入的纯 r37 Image **Git commit 相同**：`c4127a25dcf3c8923daffa62632816f6acf0e135`。
+- 两轮 `Module.symvers` **完全逐字节一致**，长度同为 587,332 bytes、SHA256 为 `49c001544aa6be9dc33c96c47da79717094161dfafca04e2c43aeba258d35ac0`。
+- 两轮 `Image` 大小均为 36,801,024 bytes、内核版本字符串均为 `6.6.118-android15-8-maybe-dirty-4k`，但是 **Image SHA256 不同**：旧版 `f750918b8063b2cad9b851573ac788edbf18ee50baa3e648e8e29d9a5b53c9fd`；新版 `4cce4385e014ae6ee514cb8b5e97d37983b12e764a811ea2e49abe2104ddafad`。因此**不能将此次 System.map 说成与之前实际刷入的内核二进制逐字节一一对应**，也不能在未定位差异前断言只是时间戳导致。
+- 但相同固定源提交、相同 `Module.symvers` 与配置，支持这次符号存在性比较有价值，结论仍需保持限定。
+
+### 下一步
+
+最紧迫的根因疑点不再是这 35 个 LKM 内部符号“全部缺失”，而是实际启动时 LKM 加载行为、剩余未展示的 35 个符号、以及用户原厂 OS4 6.6.118 特有的 Hybrid UFS/F2FS/VIP/EROFS/Discard 实现与 F2FS 内部结构布局。当前没有失败时内核日志，**不应继续刷盲测的 GKI boot**。
