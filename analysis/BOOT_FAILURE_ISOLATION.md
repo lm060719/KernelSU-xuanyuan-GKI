@@ -50,3 +50,26 @@ The control workflow confirms the pristine common source tree, omits KernelSU co
 - Offline compare control and KSU config / exported CRC / banner to isolate any differences beyond KSU.
 - Separately assess stock-only UFS/F2FS/SCSI functionality (7 missing config symbols). Matching CRC is not equivalence.
 - Only then consider an explicitly requested controlled device test, with stock backup and recoverability.
+
+
+## 2026-10-26: Vanilla r28 boot experiment completed
+
+**Observed on the actual xuanyuan handset:**
+- Pinned `android15-6.6-2026-01_r28` + KernelSU v3.3.1: second-logo boot hang; stock boot restoration works.
+- The **same r28 baseline without KernelSU**: also second-logo boot hang; restoring original boot restores normal operation.
+- Therefore KernelSU is **not required** to trigger the failure. Shared r28-vs-stock runtime differences and/or shared boot packaging remain in scope. Rebuilding more variations of KernelSU alone is not justified.
+
+**Offline boot image review:**
+- Original stock, KSU and vanilla boot images are 100,663,296 bytes (96 MiB), Android Boot Header v4 with ramdisk_size=0 and signature_size=0.
+- AVBf footer is present, and embedded vbmeta can be located via the recorded offset in both failed images. These facts do not prove bootloader acceptance.
+- The custom images necessarily invalidate the original AVB signature; do not infer actual bootloader state from Android properties if the device uses a spoofing module.
+
+**AOSP GKI protected export audit (read-only CI):**
+- r28's upstream `android/abi_gki_protected_exports_aarch64` has **507 symbols**.
+- 58 sampled stock .ko vendor modules intersect that list at **9 distinct imported symbols**, from `cfg80211.ko` (`rfkill_*`) and `mac80211.ko` (`arc4_crypt`, `arc4_setkey`).
+- Crucial nuance: **all 9 are in the r28 `android/abi_gki_aarch64_qcom` KMI symbol list**, and hence appear in the GKI allowlist union. Their protected-export membership ALONE is **not evidence of load rejection**. Do not claim this is the confirmed boot-loop cause.
+- Third-party xuanyuan-kernel project reports protected-exports-induced vendor module problems in a different build context. That is a lead to verify, not evidence about this exact HyperOS 4 firmware.
+- Independent Xiaomi feature gap remains: seven stock-only UFS/F2FS/SCSI/I/O config symbols and unverified matching implementation.
+- Stock `uname -r` references git hash `b9cc6ec16bc8`; AOSP GitHub public mirror could not resolve that hash, while an older xuanyuan kernel hash `e56cf6b09cca` was resolvable. This check cannot show whether the stock hash is available in Xiaomi's internal source or other upstreams.
+
+**New priority:** stop device flashing until a concrete, high-confidence boot failure mechanism is demonstrated, ideally by an OS4.0.0.16.XOACNXM-compatible Xiaomi kernel tree or authenticated boot-stage diagnostics. Do not treat matching CRCs, GKI Build Success, or partial header verification as proof of bootability.
