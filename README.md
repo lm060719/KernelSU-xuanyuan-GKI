@@ -26,7 +26,8 @@ GitHub Actions 工作流 [`kernel-gki.yml`](.github/workflows/kernel-gki.yml)：
 ## 下载
 
 Actions → 最新一次成功的 “Build KernelSU GKI AnyKernel3 (xuanyuan)” → Artifacts →
-`AnyKernel3-xuanyuan-KernelSU-v3.3.1`（解压后得到 `AK3-xuanyuan-...zip`）。
+`AnyKernel3-xuanyuan-KernelSU`（内置 KernelSU）或 `AnyKernel3-xuanyuan-noKernelSU`（对照版），
+解压后得到 `AK3-xuanyuan-...zip`。
 
 ## 刷机前准备（必须）
 
