@@ -1,0 +1,6 @@
+id=xuanyuan_bootlog
+name=xuanyuan boot logger
+version=v1
+versionCode=1
+author=KernelSU-xuanyuan-GKI
+description=Records dmesg/logcat while the test kernel (built-in KernelSU) boots, to /data/local/tmp/xuanyuan_bootlog. Does nothing on the stock kernel with KernelSU LKM.

@@ -57,6 +57,13 @@ fastboot reboot
 
 即可回到刷机前的状态（原厂内核 + LKM 版 KernelSU）。
 
+## 卡开机时抓日志
+
+[`diagnostics/bootlog-module`](diagnostics/bootlog-module) 是一个 KernelSU 模块（把两个文件打成 zip 即可安装）：
+测试内核（内置 KernelSU）开机时，在 post-fs-data 阶段开始记录 dmesg、logcat、开机进度和 tombstone，
+持续 10 分钟，存到 `/data/local/tmp/xuanyuan_bootlog/boot_<时间>/`。原厂内核 + LKM 开机时它什么都不做，
+所以救回后不会覆盖失败那次的日志。如果失败后那里没有新目录，说明测试内核没有走到 post-fs-data。
+
 ## 参考
 
 - https://github.com/tiann/KernelSU/releases/tag/v3.3.1
