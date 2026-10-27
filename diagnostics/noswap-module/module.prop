@@ -1,0 +1,6 @@
+id=xuanyuan_noswap
+name=xuanyuan no-swap experiment
+version=v1
+versionCode=1
+author=KernelSU-xuanyuan-GKI
+description=Experiment: keeps zram swap from being enabled while the test kernel (built-in KernelSU) boots. Does nothing on the stock kernel with KernelSU LKM. Remove after the test.
