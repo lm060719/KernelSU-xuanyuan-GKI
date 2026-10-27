@@ -11,6 +11,8 @@ OUT="${OUT_DIR:-$PWD/out}"
 MANIFEST_BRANCH="${MANIFEST_BRANCH:-common-android15-6.6-2026-01}"
 GKI_TAG="${GKI_TAG:-android15-6.6-2026-01_r43}"
 KSU_TAG="${KSU_TAG:-v3.3.1}"
+# WITH_KSU=0 builds the same kernel without KernelSU as a control.
+WITH_KSU="${WITH_KSU:-1}"
 # Stock: 6.6.118-android15-8-gb9cc6ec16bc8-abogki536571621-4k
 # Kleaf builds "-android15-8" + this + CONFIG_LOCALVERSION ("-4k").
 STOCK_SCMVERSION="${STOCK_SCMVERSION:--gb9cc6ec16bc8-abogki536571621}"
@@ -45,6 +47,13 @@ case "${1:-}" in
     sed -i "s|stable_scmversion_cmd = \"echo '-maybe-dirty'\"|stable_scmversion_cmd = \"echo '$STOCK_SCMVERSION'\"|" "$stamp"
     grep -Fq "echo '$STOCK_SCMVERSION'" "$stamp"
     grep -qx 'CONFIG_LOCALVERSION="-4k"' common/arch/arm64/configs/gki_defconfig
+    # system_dlkm GKI modules (rfkill, cfg80211, bluetooth, ...) are signed with
+    # the stock build key, which this kernel does not trust. As "unsigned"
+    # modules they are refused when they export protected symbols
+    # ("rfkill: exports protected symbol rfkill_alloc"), which takes WiFi and
+    # Bluetooth down. An empty list disables only that export check.
+    : > common/android/abi_gki_protected_exports_aarch64
+    test ! -s common/android/abi_gki_protected_exports_aarch64
     # The two Xiaomi-private F2FS vendor hooks still missing from public GKI.
     python3 "$HERE/add_xiaomi_hooks.py" common
     git -C common diff > "$REPORTS/xiaomi_hooks.patch"
@@ -121,7 +130,7 @@ PY
     fi
     test -s "$symvers" || { echo 'Module.symvers not found' >&2; exit 1; }
     cp "$symvers" "$REPORTS/Module.symvers"
-    python3 "$HERE/verify_build.py" "$DIST/Image" "$REPORTS/Module.symvers" "$STOCK_RELEASE" "$REPORTS/verify.json"
+    python3 "$HERE/verify_build.py" "$DIST/Image" "$REPORTS/Module.symvers" "$STOCK_RELEASE" "$WITH_KSU" "$REPORTS/verify.json"
     ;;
   package)
     test -s "$DIST/Image" || { echo 'No Image, cannot package'; exit 1; }
@@ -133,8 +142,13 @@ PY
     rm -rf "$ak3/.git" "$ak3/.github" "$ak3/README.md" "$ak3/modules" "$ak3/patch" "$ak3/ramdisk"
     cp "$HERE/anykernel.sh" "$ak3/anykernel.sh"
     cp "$DIST/Image" "$ak3/Image"
-    ksu_ver="$(cat "$REPORTS/kernelsu.version")"
-    zip_name="AK3-xuanyuan-${STOCK_RELEASE%%-android*}-KernelSU-${KSU_TAG}-${ksu_ver}.zip"
+    if [ "$WITH_KSU" = 1 ]; then
+      variant="KernelSU-${KSU_TAG}-$(cat "$REPORTS/kernelsu.version")"
+    else
+      variant="noKernelSU"
+      sed -i 's/ + KernelSU built-in/ without KernelSU (control)/' "$ak3/anykernel.sh"
+    fi
+    zip_name="AK3-xuanyuan-${STOCK_RELEASE%%-android*}-${variant}.zip"
     (cd "$ak3" && zip -r9 "$OUT/$zip_name" . -x '.git*')
     cp "$DIST/Image" "$OUT/Image"
     (cd "$OUT" && sha256sum "$zip_name" Image | tee SHA256SUMS)

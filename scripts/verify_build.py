@@ -39,9 +39,9 @@ def read_ikconfig(raw):
 
 
 def main():
-    if len(sys.argv) != 5:
-        raise SystemExit("usage: verify_build.py Image Module.symvers expected_release report.json")
-    image, symvers, release, report_path = sys.argv[1:]
+    if len(sys.argv) != 6:
+        raise SystemExit("usage: verify_build.py Image Module.symvers expected_release with_ksu(0|1) report.json")
+    image, symvers, release, with_ksu, report_path = sys.argv[1:]
     raw = Path(image).read_bytes()
     exports = {f[1] for f in (l.split() for l in Path(symvers).read_text().splitlines()) if len(f) >= 4}
 
@@ -62,9 +62,11 @@ def main():
     failures = []
     if banners != [release]:
         failures.append(f"kernel release {banners} != stock {release!r}")
-    for key in ("CONFIG_KSU", "CONFIG_ARM64_4K_PAGES", "CONFIG_KPROBES", "CONFIG_MODVERSIONS"):
+    for key in ("CONFIG_ARM64_4K_PAGES", "CONFIG_KPROBES", "CONFIG_MODVERSIONS"):
         if opts[key] != "y":
             failures.append(f"{key}={opts[key]}")
+    if opts["CONFIG_KSU"] != ("y" if with_ksu == "1" else "unset"):
+        failures.append(f"CONFIG_KSU={opts['CONFIG_KSU']} but with_ksu={with_ksu}")
     if missing_hooks:
         failures.append(f"stock-only hooks missing: {missing_hooks}")
     if len(iters) < STOCK_TRACEITER_TOTAL:

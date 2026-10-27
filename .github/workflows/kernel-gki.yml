@@ -27,9 +27,19 @@ concurrency:
 
 jobs:
   build:
+    name: build (${{ matrix.variant }})
     runs-on: ubuntu-24.04
     timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: KernelSU
+            with_ksu: "1"
+          - variant: noKernelSU
+            with_ksu: "0"
     env:
+      WITH_KSU: ${{ matrix.with_ksu }}
       GKI_ROOT: ${{ github.workspace }}/gki
       DIST_DIR: ${{ github.workspace }}/dist
       REPORT_DIR: ${{ github.workspace }}/reports
@@ -64,10 +74,11 @@ jobs:
       - name: Sync AOSP GKI 6.6.118 sources
         run: bash scripts/build.sh prepare
 
-      - name: Match stock version string and add Xiaomi F2FS hooks
+      - name: Match stock version, allow stock-signed GKI modules, add Xiaomi F2FS hooks
         run: bash scripts/build.sh patch
 
       - name: Integrate KernelSU built-in
+        if: matrix.with_ksu == '1'
         run: bash scripts/build.sh integrate
 
       - name: Compile with Kleaf / Bazel
@@ -83,7 +94,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-reports
+          name: build-reports-${{ matrix.variant }}
           path: reports/
           retention-days: 14
           if-no-files-found: warn
@@ -91,7 +102,7 @@ jobs:
       - name: Upload AnyKernel3 zip
         uses: actions/upload-artifact@v4
         with:
-          name: AnyKernel3-xuanyuan-KernelSU-${{ env.KSU_TAG }}
+          name: AnyKernel3-xuanyuan-${{ matrix.variant }}
           path: |
             out/*.zip
             out/SHA256SUMS
@@ -101,7 +112,7 @@ jobs:
       - name: Upload raw Image
         uses: actions/upload-artifact@v4
         with:
-          name: Image-xuanyuan-KernelSU-${{ env.KSU_TAG }}
+          name: Image-xuanyuan-${{ matrix.variant }}
           path: out/Image
           retention-days: 30
           if-no-files-found: error

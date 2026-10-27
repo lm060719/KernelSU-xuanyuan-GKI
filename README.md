@@ -13,8 +13,12 @@ GitHub Actions 工作流 [`kernel-gki.yml`](.github/workflows/kernel-gki.yml)：
 3. **补齐原厂独有的 vendor hook**：r43 已含 14 个中的 12 个；另外两个小米私有 F2FS hook
    `android_vh_f2fs_is_hiprio_task` / `android_vh_f2fs_is_usr_task` 按原厂 BTF 中的原型
    `(int *ret)` 声明、导出并加入 KMI 列表，避免厂商驱动因 "unknown symbol" 加载失败。
-4. KernelSU `v3.3.1` 内置（`CONFIG_KSU=y`）。
-5. 产物是 **AnyKernel3 刷机包**：只替换手机自身 boot 里的内核，原厂 boot 头、安全补丁级别、
+4. **允许原厂签名的 GKI 模块加载**：`system_dlkm` 里的 rfkill/cfg80211/bluetooth 等模块用原厂密钥签名，
+   本内核不信任，会被当作厂商模块拒绝导出“受保护符号”（实测 `rfkill: exports protected symbol rfkill_alloc`，
+   WiFi/蓝牙随之失效）。构建时清空 `abi_gki_protected_exports_aarch64`，只关闭这项导出检查。
+5. KernelSU `v3.3.1` 内置（`CONFIG_KSU=y`）；同时编一个**不含 KernelSU 的对照版**（`noKernelSU`），
+   用来区分问题是否与 KernelSU 有关（刷对照版时要配原厂 init_boot）。
+6. 产物是 **AnyKernel3 刷机包**：只替换手机自身 boot 里的内核，原厂 boot 头、安全补丁级别、
    cmdline、AVB footer 和内嵌 vbmeta 全部保留（不修改 vbmeta 标志）。
 
 之前三次失败的测试记录见 [`analysis/`](analysis/)。
