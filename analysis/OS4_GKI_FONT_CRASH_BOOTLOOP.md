@@ -53,11 +53,12 @@ SIGSEGV SEGV_MAPERR
 | 字体文件读取 / EROFS | 两种内核下 `/system/fonts`、`/product/fonts` 共 294 个文件 sha256 完全一致 |
 | CPU 特性 | 原厂 `/proc/cpuinfo` Features 全部在 r43 `hwcap_str` 中 |
 | ART GC 类型 | `ro.dalvik.vm.enable_uffd_gc=false`，两边均为 CollectorTypeCC |
+| zram swap / 换页 | 实验模块挡住 zram，整个开机过程 `SwapTotal: 0 kB`，仍崩溃 17 次，`x22` 同为 `0x200d0000` |
 | 更新的 AOSP 分支 | 原厂独有的混合 UFS、F2FS VIP、EROFS LZ4 修改等在 r43、2026-10 分支和 android15-6.6 最新提交里都不存在（仅 `f2fs_fault_report` 在 2026-10 之后出现） |
 
-## 尚待验证
+## 结论
 
-小米改过的 GKI 模块 `zsmalloc.ko`（`zsmalloc: zhang entry zs_init`）、`zram.ko`（`zgroup`）与
-`mi_reclaim`、`xswapd`、`UFSSWAP`、`mi_lb` 预读换入等开机期内存机制，按原厂内核编译，可能与 AOSP 内核
-内部结构不匹配，导致换出/换入的匿名页内容错误。实验模块 [`diagnostics/noswap-module`](../diagnostics/noswap-module)
-在测试内核开机时阻止 zram swap 启用，用来验证这一点。
+能低成本验证的方向都已排除（swap 由 [`diagnostics/noswap-module`](../diagnostics/noswap-module) 实测排除）。
+同一套用户空间，只换成 AOSP GKI 内核，system_server 里 minikin 的 `LocaleListCache` 内存就会被确定性地破坏；
+根源在小米未公开的内核修改里。要继续，需要与 OS4.0.0.16 对应的小米内核源码，或在开机过程中对 system_server
+做内存写入断点之类的深度调试。在此之前，可用方案是原厂内核 + KernelSU LKM。
